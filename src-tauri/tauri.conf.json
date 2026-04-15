@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Game Mode",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "com.gamemode.app",
   "build": {
     "frontendDist": "../out",
