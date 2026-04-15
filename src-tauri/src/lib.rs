@@ -1,11 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use sysinfo::{ProcessesToUpdate, System};
+use sysinfo::System;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Runtime,
+    Emitter, Runtime,
 };
 use tokio::time::interval;
 
@@ -83,7 +83,7 @@ fn get_system_info() -> Result<SystemInfo, String> {
 #[tauri::command]
 fn get_processes() -> Result<Vec<ProcessInfo>, String> {
     let mut sys = System::new_all();
-    sys.refresh_processes_specifics(ProcessesToUpdate::All);
+    sys.refresh_all();
 
     let mut processes: Vec<ProcessInfo> = sys
         .processes()
@@ -105,7 +105,7 @@ fn get_processes() -> Result<Vec<ProcessInfo>, String> {
 #[tauri::command]
 fn get_recommended_to_stop() -> Result<Vec<ProcessInfo>, String> {
     let mut sys = System::new_all();
-    sys.refresh_processes_specifics(ProcessesToUpdate::All);
+    sys.refresh_all();
 
     let recommended: Vec<ProcessInfo> = sys
         .processes()
@@ -160,7 +160,7 @@ fn kill_process(pid: u32) -> Result<bool, String> {
 #[tauri::command]
 async fn optimize_system() -> Result<OptimizationResult, String> {
     let mut sys = System::new_all();
-    sys.refresh_processes_specifics(ProcessesToUpdate::All);
+    sys.refresh_all();
 
     let mut killed_count = 0u32;
     let mut freed_memory = 0u64;
@@ -271,7 +271,7 @@ fn stop_auto_optimizer() -> Result<String, String> {
 
 #[tauri::command]
 async fn save_settings(
-    settings: serde_json::Value,
+    _settings: serde_json::Value,
 ) -> Result<String, String> {
     // Store에 설정 저장 (프론트엔드에서 Zustand persist로 처리)
     Ok("Settings saved".to_string())

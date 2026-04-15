@@ -3,27 +3,17 @@
   "description": "Default capability for Game Mode",
   "windows": ["main"],
   "permissions": [
-    "core:app:allow-app-hide",
-    "core:app:allow-app-show",
-    "core:app:allow-app-quit",
-    "core:window:allow-center",
-    "core:window:allow-close",
-    "core:window:allow-hide",
-    "core:window:allow-maximize",
-    "core:window:allow-minimize",
-    "core:window:allow-set-title",
-    "core:window:allow-show",
-    "core:window:allow-unmaximize",
+    "core:app:default",
+    "core:window:default",
+    "core:menu:default",
+    "core:tray:default",
+    "core:event:default",
+    "core:image:default",
+    "core:path:default",
+    "http:default",
     "shell:allow-execute",
     "shell:allow-kill",
-    "http:default",
-    "os:allow-exec",
-    "tray:allow-new-tray",
-    "tray:allow-set-icon",
-    "tray:allow-set-menu",
-    "tray:allow-set-show",
-    "tray:allow-set-template",
-    "tray:allow-set-title",
-    "tray:allow-set-tooltip"
+    "store:default"
   ]
 }
+
