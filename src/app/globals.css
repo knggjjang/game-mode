@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  @apply border-border;
+}
+
+body {
+  @apply bg-background text-foreground;
+}
+
+/* Game Mode specific styles */
+.gaming-button {
+  @apply transition-all duration-300 ease-in-out;
+}
+
+.gaming-button:hover {
+  @apply scale-105;
+}
+
+.gaming-button.active {
+  @apply ring-2 ring-green-500;
+}
+
+.status-pulse {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
