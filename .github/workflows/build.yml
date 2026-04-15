@@ -4,20 +4,34 @@ on:
   push:
     branches:
       - main
+      - develop
   pull_request:
     branches:
       - main
 
 jobs:
-  build-frontend:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: "Frontend"
+            build: "npm run build"
+
+          - os: windows-latest
+            name: "Windows App"
+            build: "npm run tauri build"
+
+    runs-on: ${{ matrix.os }}
+    name: Build ${{ matrix.name }}
+
     steps:
       - uses: actions/checkout@v3
 
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '18'
+          node-version: "18"
 
       - name: Cache Node modules
         uses: actions/cache@v3
@@ -30,36 +44,48 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build Next.js
+      - name: Setup Rust (Windows only)
+        if: runner.os == 'Windows'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust (Windows only)
+        if: runner.os == 'Windows'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri"
+
+      - name: Build Next.js frontend
+        if: matrix.os == 'ubuntu-latest'
         run: npm run build
 
-      - name: Upload build artifacts
+      - name: Build Tauri Windows app
+        if: matrix.os == 'windows-latest'
+        run: npm run tauri build
+
+      - name: Upload frontend artifacts
+        if: matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@v3
         with:
-          name: frontend-build
+          name: game-mode-frontend
           path: out/
-          retention-days: 5
+          retention-days: 7
 
-  # NOTE: Tauri Windows build requires Windows runner and full toolchain
-  # For now, we recommend building locally or setting up a separate Windows CI
-  # Uncomment and configure when ready to build Windows binaries
-  # build-tauri-windows:
-  #   runs-on: windows-latest
-  #   needs: build-frontend
-  #   if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-  #   steps:
-  #     - uses: actions/checkout@v3
-  #     - uses: actions/setup-node@v3
-  #       with:
-  #         node-version: '18'
-  #     - uses: dtolnay/rust-toolchain@stable
-  #       with:
-  #         targets: x86_64-pc-windows-msvc
-  #     - uses: Swatinem/rust-cache@v2
-  #       with:
-  #         workspaces: './src-tauri'
-  #     - run: npm ci
-  #     - run: npm run tauri build
-  #       env:
-  #         TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-  #         TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+      - name: Upload Windows artifacts
+        if: matrix.os == 'windows-latest' && always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: game-mode-windows
+          path: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe
+          retention-days: 30
+
+      - name: List build outputs
+        if: matrix.os == 'windows-latest'
+        run: |
+          echo "=== Build Outputs ==="
+          if exist "src-tauri\target\release\bundle\msi" dir src-tauri\target\release\bundle\msi
+          if exist "src-tauri\target\release\bundle\nsis" dir src-tauri\target\release\bundle\nsis
+        shell: cmd
