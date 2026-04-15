@@ -2,6 +2,12 @@
 
 import React, { useState } from "react";
 import { useGameModeStore } from "@/store/useGameModeStore";
+import { useSystemMonitor } from "@/hooks/useSystemMonitor";
+import {
+  optimizeSystem,
+  getRecommendedToStop,
+  ProcessInfo,
+} from "@/services/gameModeService";
 import {
   Gamepad2,
   Settings as SettingsIcon,
@@ -21,7 +27,11 @@ export default function Dashboard() {
     processesKilled,
     toggleGameMode,
     updateSettings,
+    setMemoryFreed,
+    setProcessesKilled,
   } = useGameModeStore();
+
+  const { getRecommendedProcesses } = useSystemMonitor();
 
   const [mounted, setMounted] = React.useState(false);
   const [activeTab, setActiveTab] = useState<"dashboard" | "settings" | "processes">(
@@ -29,12 +39,22 @@ export default function Dashboard() {
   );
   const [intervalValue, setIntervalValue] = useState(settings.autoOptimizeInterval);
   const [thresholdValue, setThresholdValue] = useState(settings.memoryThreshold);
+  const [isOptimizing, setIsOptimizing] = useState(false);
+  const [recommendedProcesses, setRecommendedProcesses] = useState<ProcessInfo[]>([]);
 
   React.useEffect(() => {
     setMounted(true);
+    loadRecommendedProcesses();
   }, []);
 
-  if (!mounted) return <div className="h-screen bg-background" />;
+  const loadRecommendedProcesses = async () => {
+    try {
+      const processes = await getRecommendedProcesses();
+      setRecommendedProcesses(processes);
+    } catch (error) {
+      console.error("Failed to load recommended processes:", error);
+    }
+  };
 
   const handleIntervalChange = (value: number) => {
     setIntervalValue(value);
@@ -46,9 +66,20 @@ export default function Dashboard() {
     updateSettings({ memoryThreshold: value });
   };
 
-  const handleOptimizeNow = () => {
-    console.log("Optimizing system now...");
-    // TODO: Call Tauri command to optimize
+  const handleOptimizeNow = async () => {
+    setIsOptimizing(true);
+    try {
+      const result = await optimizeSystem();
+      setProcessesKilled(result.processes_killed);
+      setMemoryFreed(result.memory_freed / 1024 / 1024); // Convert to MB
+
+      // 프로세스 목록 새로고침
+      await loadRecommendedProcesses();
+    } catch (error) {
+      console.error("Failed to optimize system:", error);
+    } finally {
+      setIsOptimizing(false);
+    }
   };
 
   return (
@@ -137,9 +168,11 @@ export default function Dashboard() {
             <div className="flex gap-3">
               <button
                 onClick={handleOptimizeNow}
-                className="flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-500 hover:to-green-600 px-4 py-3 rounded-lg font-semibold text-sm transition-all"
+                disabled={isOptimizing}
+                className="flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-500 hover:to-green-600 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-3 rounded-lg font-semibold text-sm transition-all"
               >
-                <Zap size={16} /> Optimize Now
+                <Zap size={16} className={isOptimizing ? "animate-spin" : ""} />
+                {isOptimizing ? "Optimizing..." : "Optimize Now"}
               </button>
               <button
                 onClick={() => setActiveTab("settings")}
@@ -249,33 +282,37 @@ export default function Dashboard() {
           <div className="space-y-4">
             {/* Recommended to Stop */}
             <div className="bg-white/5 border border-white/10 rounded-lg p-4 space-y-3">
-              <h3 className="text-sm font-semibold uppercase tracking-wider text-green-500">
-                Recommended to Stop
-              </h3>
-              <ProcessList
-                processes={[
-                  { name: "OneDrive.exe", memory: "256 MB" },
-                  { name: "SearchIndexer.exe", memory: "128 MB" },
-                  { name: "Antimalware Service.exe", memory: "64 MB" },
-                  { name: "Windows Update.exe", memory: "89 MB" },
-                  { name: "Cortana.exe", memory: "156 MB" },
-                ]}
-              />
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold uppercase tracking-wider text-green-500">
+                  Recommended to Stop ({recommendedProcesses.length})
+                </h3>
+                <button
+                  onClick={loadRecommendedProcesses}
+                  className="p-1 hover:bg-white/10 rounded transition-colors"
+                  title="Refresh"
+                >
+                  <RefreshCw size={14} />
+                </button>
+              </div>
+              {recommendedProcesses.length > 0 ? (
+                <ProcessListWithPid processes={recommendedProcesses} />
+              ) : (
+                <p className="text-xs text-white/50 py-4">
+                  No unnecessary processes found
+                </p>
+              )}
             </div>
 
             {/* Running Processes */}
             <div className="bg-white/5 border border-white/10 rounded-lg p-4 space-y-3">
               <h3 className="text-sm font-semibold uppercase tracking-wider text-green-500">
-                Running Processes
+                Tips
               </h3>
-              <ProcessList
-                processes={[
-                  { name: "steam.exe", memory: "512 MB" },
-                  { name: "chrome.exe", memory: "1.2 GB" },
-                  { name: "discord.exe", memory: "289 MB" },
-                  { name: "explorer.exe", memory: "145 MB" },
-                ]}
-              />
+              <div className="text-xs text-white/60 space-y-2">
+                <p>💡 Click "Optimize Now" to automatically stop unnecessary processes</p>
+                <p>💡 Processes are detected and stopped based on system recommendations</p>
+                <p>⚠️ Be careful when manually stopping processes</p>
+              </div>
             </div>
           </div>
         )}
@@ -332,6 +369,39 @@ function ProcessList({
         <div key={idx} className="flex justify-between items-center p-2 text-sm">
           <span className="text-white/70">{process.name}</span>
           <span className="text-green-500 font-semibold">{process.memory}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ProcessListWithPid({
+  processes,
+}: {
+  processes: ProcessInfo[];
+}) {
+  const formatMemory = (bytes: number) => {
+    const mb = bytes / 1024 / 1024;
+    if (mb > 1024) {
+      return `${(mb / 1024).toFixed(1)} GB`;
+    }
+    return `${Math.round(mb)} MB`;
+  };
+
+  return (
+    <div className="space-y-2 max-h-48 overflow-y-auto">
+      {processes.map((process) => (
+        <div
+          key={process.pid}
+          className="flex justify-between items-center p-2 text-sm border-b border-white/5"
+        >
+          <div className="flex-1">
+            <div className="text-white/70">{process.name}</div>
+            <div className="text-xs text-white/40">PID: {process.pid}</div>
+          </div>
+          <span className="text-green-500 font-semibold">
+            {formatMemory(process.memory)}
+          </span>
         </div>
       ))}
     </div>
