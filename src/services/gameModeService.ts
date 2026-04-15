@@ -105,3 +105,29 @@ export async function updateTrayTitle(title: string): Promise<void> {
     // 트레이 업데이트 실패는 무시
   }
 }
+
+/**
+ * 자동 최적화 스케줄러 시작
+ */
+export async function startAutoOptimizer(intervalMinutes: number): Promise<string> {
+  try {
+    return await invoke<string>("start_auto_optimizer", {
+      interval_minutes: intervalMinutes,
+    });
+  } catch (error) {
+    console.error("Failed to start auto optimizer:", error);
+    throw error;
+  }
+}
+
+/**
+ * 자동 최적화 스케줄러 중지
+ */
+export async function stopAutoOptimizer(): Promise<string> {
+  try {
+    return await invoke<string>("stop_auto_optimizer");
+  } catch (error) {
+    console.error("Failed to stop auto optimizer:", error);
+    throw error;
+  }
+}

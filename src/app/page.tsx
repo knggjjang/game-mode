@@ -6,6 +6,8 @@ import { useSystemMonitor } from "@/hooks/useSystemMonitor";
 import {
   optimizeSystem,
   getRecommendedToStop,
+  startAutoOptimizer,
+  stopAutoOptimizer,
   ProcessInfo,
 } from "@/services/gameModeService";
 import {
@@ -66,6 +68,24 @@ export default function Dashboard() {
     updateSettings({ memoryThreshold: value });
   };
 
+  const handleToggleGameMode = async () => {
+    toggleGameMode();
+    const newState = !isActive;
+
+    try {
+      if (newState) {
+        // Gaming Mode 활성화
+        await startAutoOptimizer(settings.autoOptimizeInterval);
+      } else {
+        // Gaming Mode 비활성화
+        await stopAutoOptimizer();
+      }
+    } catch (error) {
+      console.error("Failed to toggle auto optimizer:", error);
+      // UI는 이미 업데이트됨
+    }
+  };
+
   const handleOptimizeNow = async () => {
     setIsOptimizing(true);
     try {
@@ -124,8 +144,9 @@ export default function Dashboard() {
         {/* Gaming Mode Button */}
         <div className="flex flex-col items-center gap-3">
           <button
-            onClick={toggleGameMode}
-            className={`w-40 h-40 rounded-full border-4 flex items-center justify-center text-6xl transition-all duration-300 ${
+            onClick={handleToggleGameMode}
+            disabled={isOptimizing}
+            className={`w-40 h-40 rounded-full border-4 flex items-center justify-center text-6xl transition-all duration-300 disabled:opacity-50 ${
               isActive
                 ? "border-green-500 bg-gradient-to-br from-green-500/25 to-green-500/5 shadow-[0_0_40px_rgba(34,197,94,0.6),inset_0_0_20px_rgba(34,197,94,0.2)]"
                 : "border-green-500 bg-gradient-to-br from-green-500/10 to-green-500/5 shadow-[0_0_20px_rgba(34,197,94,0.3)]"

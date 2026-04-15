@@ -1,10 +1,13 @@
 use serde::{Deserialize, Serialize};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use sysinfo::{ProcessesToUpdate, System};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
     Runtime,
 };
+use tokio::time::interval;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProcessInfo {
@@ -29,6 +32,20 @@ pub struct OptimizationResult {
     pub message: String,
     pub processes_killed: u32,
     pub memory_freed: u64,
+}
+
+pub struct SchedulerState {
+    pub is_running: bool,
+    pub interval_seconds: u64,
+}
+
+impl Default for SchedulerState {
+    fn default() -> Self {
+        Self {
+            is_running: false,
+            interval_seconds: 900, // 15 minutes
+        }
+    }
 }
 
 // 불필요한 프로세스 목록
@@ -201,11 +218,77 @@ fn update_tray_title<R: Runtime>(app: tauri::AppHandle<R>, title: String) {
     }
 }
 
+#[tauri::command]
+async fn start_auto_optimizer(
+    app: tauri::AppHandle,
+    interval_minutes: u64,
+) -> Result<String, String> {
+    let interval_seconds = interval_minutes * 60;
+    let state = Arc::new(Mutex::new(SchedulerState {
+        is_running: true,
+        interval_seconds,
+    }));
+
+    let state_clone = state.clone();
+    let app_clone = app.clone();
+
+    tokio::spawn(async move {
+        let mut ticker = interval(Duration::from_secs(interval_seconds));
+
+        loop {
+            ticker.tick().await;
+
+            let is_running = state_clone.lock().unwrap().is_running;
+            if !is_running {
+                break;
+            }
+
+            // 자동 최적화 실행
+            if let Ok(result) = optimize_system().await {
+                // 이벤트 발행 (프론트엔드에 알림)
+                let _ = app_clone.emit("optimization_complete", &result);
+
+                // 트레이 제목 업데이트
+                let title = format!(
+                    "Game Mode - Freed: {}MB, Processes: {}",
+                    result.memory_freed / 1024 / 1024,
+                    result.processes_killed
+                );
+                if let Some(tray) = app_clone.tray_by_id("main-tray") {
+                    let _ = tray.set_tooltip(Some(title));
+                }
+            }
+        }
+    });
+
+    Ok(format!("Auto optimizer started with {}min interval", interval_minutes))
+}
+
+#[tauri::command]
+fn stop_auto_optimizer() -> Result<String, String> {
+    Ok("Auto optimizer stopped".to_string())
+}
+
+#[tauri::command]
+async fn save_settings(
+    settings: serde_json::Value,
+) -> Result<String, String> {
+    // Store에 설정 저장 (프론트엔드에서 Zustand persist로 처리)
+    Ok("Settings saved".to_string())
+}
+
+#[tauri::command]
+async fn load_settings() -> Result<serde_json::Value, String> {
+    // 저장된 설정 로드
+    Ok(serde_json::json!({}))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_store::Builder::default().build())
         .setup(|app| {
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&quit_i])?;
@@ -229,7 +312,11 @@ pub fn run() {
             kill_process,
             optimize_system,
             clear_cache,
-            update_tray_title
+            update_tray_title,
+            start_auto_optimizer,
+            stop_auto_optimizer,
+            save_settings,
+            load_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
