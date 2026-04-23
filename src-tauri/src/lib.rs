@@ -34,28 +34,27 @@ pub struct OptimizationResult {
     pub memory_freed: u64,
 }
 
+#[derive(Clone)]
 pub struct SchedulerState {
-    pub is_running: bool,
-    pub interval_seconds: u64,
+    pub is_running: Arc<Mutex<bool>>,
+    pub interval_seconds: Arc<Mutex<u64>>,
 }
 
 impl Default for SchedulerState {
     fn default() -> Self {
         Self {
-            is_running: false,
-            interval_seconds: 900, // 15 minutes
+            is_running: Arc::new(Mutex::new(false)),
+            interval_seconds: Arc::new(Mutex::new(900)), // 15 minutes
         }
     }
 }
 
-// 불필요한 프로세스 목록
 const RECOMMENDED_TO_STOP: &[&str] = &[
     "OneDrive.exe",
     "SearchIndexer.exe",
     "MsSpellCheckingFacility.exe",
     "SensorDataService.exe",
     "DiagTrack.exe",
-    "dwm.exe",
     "Cortana.exe",
     "gsservice.exe",
     "tabtip.exe",
@@ -127,6 +126,28 @@ fn get_recommended_to_stop() -> Result<Vec<ProcessInfo>, String> {
 
 #[tauri::command]
 fn kill_process(pid: u32) -> Result<bool, String> {
+    let mut sys = System::new_all();
+    sys.refresh_all();
+    
+    // 보안 검증: 중요 시스템 프로세스 종료 방지
+    let is_critical = sys.processes().iter().any(|(p, process)| {
+        p.as_u32() == pid && {
+            let name = process.name().to_lowercase();
+            name.contains("dwm.exe") || 
+            name.contains("svchost.exe") || 
+            name.contains("explorer.exe") || 
+            name.contains("csrss.exe") || 
+            name.contains("winlogon.exe") || 
+            name.contains("smss.exe") || 
+            name.contains("services.exe") || 
+            name.contains("lsass.exe")
+        }
+    });
+
+    if is_critical {
+        return Err("Cannot kill critical system process for security reasons".to_string());
+    }
+
     #[cfg(target_os = "windows")]
     {
         use std::process::Command;
@@ -196,9 +217,9 @@ fn clear_cache() -> Result<String, String> {
     {
         use std::process::Command;
 
-        // Windows 메모리 캐시 정리
-        let _ = Command::new("cmd")
-            .args(&["/C", "ipconfig", "/flushdns"])
+        // Windows 메모리 캐시 정리 (cmd /C 직접 실행 방지)
+        let _ = Command::new("ipconfig")
+            .arg("/flushdns")
             .output();
 
         Ok("Cache cleared (DNS cache flushed)".to_string())
@@ -221,16 +242,25 @@ fn update_tray_title<R: Runtime>(app: tauri::AppHandle<R>, title: String) {
 #[tauri::command]
 async fn start_auto_optimizer(
     app: tauri::AppHandle,
+    state: tauri::State<'_, SchedulerState>,
     interval_minutes: u64,
 ) -> Result<String, String> {
     let interval_seconds = interval_minutes * 60;
-    let state = Arc::new(Mutex::new(SchedulerState {
-        is_running: true,
-        interval_seconds,
-    }));
+    
+    {
+        let mut is_running = state.is_running.lock().unwrap();
+        if *is_running {
+            return Ok("Optimizer is already running".to_string());
+        }
+        *is_running = true;
+    }
+    {
+        let mut interval = state.interval_seconds.lock().unwrap();
+        *interval = interval_seconds;
+    }
 
-    let state_clone = state.clone();
     let app_clone = app.clone();
+    let state_clone = state.inner().clone();
 
     tokio::spawn(async move {
         let mut ticker = interval(Duration::from_secs(interval_seconds));
@@ -238,7 +268,7 @@ async fn start_auto_optimizer(
         loop {
             ticker.tick().await;
 
-            let is_running = state_clone.lock().unwrap().is_running;
+            let is_running = *state_clone.is_running.lock().unwrap();
             if !is_running {
                 break;
             }
@@ -265,7 +295,9 @@ async fn start_auto_optimizer(
 }
 
 #[tauri::command]
-fn stop_auto_optimizer() -> Result<String, String> {
+fn stop_auto_optimizer(state: tauri::State<'_, SchedulerState>) -> Result<String, String> {
+    let mut is_running = state.is_running.lock().unwrap();
+    *is_running = false;
     Ok("Auto optimizer stopped".to_string())
 }
 
@@ -289,6 +321,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .manage(SchedulerState::default())
         .setup(|app| {
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&quit_i])?;
